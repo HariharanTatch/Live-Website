@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>SleepData</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<script src="https://canvasjs.com/assets/script/jquery.11.1.min.js"></script>
+	<script src="https://canvasjs.com/assets/script/jquery.canvasjs.min.js"></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+	<link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css">
+	<link rel="stylesheet" href="https://code.jquery.com/ui/1.10.4/themes/flick/jquery-ui.css">
+	<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
+	<!-- Latest compiled and minified CSS -->
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+
+	<!-- Optional theme -->
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+	<link rel="stylesheet" href="static_files/jquery-ui-slider-pips.css">
+	<script src = "static_files/jquery-ui-slider-pips.js"></script>
+	<!-- Latest compiled and minified JavaScript -->
+	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+
+	<script>
+    //var clickedPoints = [];
+    var steps_slider ;
+    function generate_steps(min, max){
+    	steps_slider = [];
+    	var s = (max-min)/3600;
+    	var i;
+    	for( i = 0; i<2&&i<=s; i++){
+    		steps_slider.push((10+i) + "PM")
+
+    	}
+
+    	while(i<=s){
+    		if(i!=2)
+    			steps_slider.push(((10+i)-12) + "AM");
+    		if(i==2)
+    			steps_slider.push((10+i) + "AM");
+    		i++;
+    	}
+
+    };
+    function convert_sec_format_hms(sec){ //formats seconds into hours, min and seconds
+    	if(sec<60){
+    		return (sec + " secs");
+    	}
+    	if(sec<3600){
+    		return (parseInt(sec/60)+ " min " + (sec%60)+ " sec");
+    	}
+    	return (parseInt(sec/3600) + " hr " + parseInt((sec%3600)/60)+ " min " + ((sec%3600)%60) + " sec");
+    };
+
+  function convert_sec_format_smh(sec){//formats seconds for the menu for picking time frame
+    	if(sec<60&&sec>0){
+    		return (sec + " sec");
+    	}
+    	if(sec<3600){
+    		return ((sec/60) +" min");
+    	}
+
+    	return ((sec/3600) + " hr" );
+    };
+    
+    var unix_time_stamp=1527818400;
+    var delta;//time measurement
+    var original;//original window proportions
+    var shift = false;//records whether or not shift key is currently being held down
+    var charts = [];//holds all the chart objects
+    var key;//holds all the chart names
+    var dataPoints = [];//holds the chart values in a two by two array, datapoints[1][1] refers to the 2nd chart's 2nd data point
+    var dp = [];
+    var key_size;//size of the variable key
+    var options;//holds the options for plotting the data
+    var slider_range_value= 3600;
+    var jquery_load = false;
+    function interval_generator(){
+    	if(slider_range_value/5<1){
+    		return 1;
+    	}
+    	return parseInt(slider_range_value/5);
+    }
+    $(document).ready(function(){
+		$.get("/data",function(data_json,status){//get json file from server to fill up the plot
+			data = data_json;
+			key = (Object.keys(data[0]))[0].split(",");//split the string which holds the chart names
+			key_size = key.length;//find length
+			
+			for (var i = 0; i<key_size; i++){//initiallize data points with its own array (javascript doesn't allow 2 dimensional array initializations)
+				dataPoints[i]=[];
+			}
+			for ( var i = 0; ((typeof data[i])!== 'undefined') ; i++ ) {//this subroutine parses and stores the stringified json file sent from the server, subject to change
+				var val = (Object.values(data[i]))[0].split(",");
+
+				for(var j = 1; j<key_size; j++ ){
+					dataPoints[j].push({x:(parseFloat(val[0])+unix_time_stamp)*1000, y:parseFloat(val[j])});
+				}
+			}
+			construct_charts();
+			
+		});
+
+		$( ".open_onchange_class").change(function(evt){
+			var file =  $('#file').prop('files')[0];
+			var reader = new FileReader();
+			var raw_data;
+			
+			reader.onload = function(e) {
+				raw_data = (reader.result).split("\n");
+				key = (raw_data[0].trim()).split(",");
+				key_size = key.length;
+				for(var i = 0; i <key_size; i++){
+					dp[i]= [];
+				}
+				for(var x = 1; x<raw_data.length-1;x++){
+					var split_data = (raw_data[x]).split(",");
+					for(var i = 1; i<key_size; i++){
+						dp[i].push({x:(parseFloat(split_data[0])+unix_time_stamp)*1000, y:parseFloat(split_data[i])});
+					}
+
+				}
+				dataPoints = dp;
+				construct_charts();
+
+			};
+			reader.readAsText(file);
+			// var comma_split_file = (reader.result).split(",");
+			
+		});
+		function construct_charts(){
+			console.log("here0");
+			options = [];//iniialize options to be an array
+			slider_range_value = 3600;
+			charts = [];
+			$("#default_message").remove();
+			$(".Channel").remove();
+			$(".channel_dropdown_content").remove();
+			for(var i = 0; i<key_size; i++){//for every chart that is not Time or Position labels, make a div under the class channel
+				if(key[i]!=="Time"&&key[i]!=="Position_Labels"){
+				
+					$("<div class=\"Channel " + key[i]+"\">   <div class=\"row\"> <div class=\"col-sm-1\" style = \"overflow: hidden; margin-top: 20px\"> <h4>"+key[i]+"</h4> </div> <div class=\"col-sm-11\" > <div id = \""+key[i]+"\" class = \"Chart\"  onmousedown=\"isKeyPressed(event)\"></div> </div></div></div>").appendTo(".body");
+					$("<li class = \"channel_dropdown_content\"><a href = \"#\"><input type = \"checkbox\"  id = \"view_check\" class = \" view_check_class "+key[i]+"\" checked =\"checked\" />"+key[i]+"</a></li>").appendTo("#channel_dropdown");
+				}
+			}
+			$("#slider-range").remove();
+			$("<div id =\"slider-range\" style=\" margin-left: 60px; width: 1989px; border: 3px solid green; \"></div>").appendTo(".col-sm-11.slider_class");
+			for (var i = 0; i<key_size; i++){//every charts options are pushed, we are enabling animation, zoom, interactivity, and setting the appropriate data
+				options.push(
+				{
+					height:300,
+					animationEnabled: true,
+					zoomEnabled: true,
+					zoomType: "x",
+					interactivityEnabled: true,
+					rangeChanging : function (e){
+						for(var x = 0; x<charts.length; x++){
+							var chart = charts[x];
+							if(e.chart!==charts[x]){
+								original = {x1: chart.options.axisX.viewportMinimum, x2: chart.options.axisX.viewportMaximum,y1: chart.options.axisY.viewportMinimum, y2: chart.options.axisY.viewportMaximum };
+							}
+						}
+					},
+					toolTip:{
+        				enabled: false   //enable here
+      				},
+					data: [{
+						type: "line",
+						xValueType: "dateTime",
+						dataPoints: dataPoints[i]
+					}],
+					axisY:{
+						includeZero: true,
+						valueFormatString: "#00.0",
+						gridThickness: 0,
+						lineThickness: 0
+					},
+					axisX:{
+						lineThickness: 0,
+						valueFormatString: "h:mm:ss TT",
+						  	
+						  interval: interval_generator(),
+						  intervalType: "second",      
+       					// valueFormatString: "h m s TT ",
+						viewportMinimum: unix_time_stamp*1000,
+						viewportMaximum:(slider_range_value+unix_time_stamp)*1000,
+						gridThickness: 0
+        				// labelAngle: -20
+					},
+
+						rangeChanged: function(e){//this is to synchronize zoom and pan in the charts, when the range is changed, the viewports of all the charts are set to equal eachother
+							if(shift==false){
+								$( "#slider-range" ).slider( "option", "values", [e.axisX[0].viewportMinimum/1000-unix_time_stamp, e.axisX[0].viewportMaximum/1000-unix_time_stamp] );
+								slider_range_value = e.axisX[0].viewportMaximum/1000-unix_time_stamp-e.axisX[0].viewportMinimum/1000+unix_time_stamp;
+								for (var i = 0; i < charts.length; i++) {
+									var chart = charts[i];
+											 //    if (!chart.options.axisX) {
+												// chart.options.axisX = {};}
+
+											 //    if (!chart.options.axisY) {
+											 //        chart.options.axisY = {};}
+											 console.log(interval_generator);
+
+											chart.options.axisX.interval = interval_generator();		 
+											console.log(chart.options.axisX.interval);
+											 if (e.trigger === "reset") {
+											 	chart.options.axisX.viewportMinimum = chart.options.axisX.viewportMaximum = null;
+											 	chart.options.axisY.viewportMinimum = chart.options.axisY.viewportMaximum = null;
+
+											 	chart.render();
+											 } else if (chart !== e.chart) {
+											 	chart.options.axisX.viewportMinimum = e.axisX[0].viewportMinimum;
+											 	chart.options.axisX.viewportMaximum = e.axisX[0].viewportMaximum;
+
+										// chart.options.axisY.viewportMinimum = e.axisY[0].viewportMinimum;
+										// chart.options.axisY.viewportMaximum = e.axisY[0].viewportMaximum;
+
+										chart.render();
+									}
+								}
+							}  else {
+								$(".delta").text("Time Measured: "+convert_sec_format_hms(e.axisX[0].viewportMaximum-e.axisX[0].viewportMinimum));
+								e.chart.options.axisX.viewportMinimum= original.x1;
+								e.chart.options.axisX.viewportMaximum = original.x2;
+								e.chart.render();	
+								console.log(e.chart.options.axisX.viewportMinimum+" "+e.chart.options.axisX.viewportMaximum+" "+original.x1+" "+original.x2)
+								shift = false;
+							}
+						}  
+					}
+					);
+			}
+
+			for(var i = 0; i<key_size;i++){
+				if(key[i]!=='Position_Labels'&&key[i]!=='Time'){//make new chart object and push
+
+					var c = new CanvasJS.Chart(key[i],options[i]);
+					// console.log(c);
+					// console.log(key[i]);
+					charts.push(c);
+					
+					c.render();
+				}
+			}
+			$('.Channel').on('scroll', function () {//synchronize scroll (subject to change)
+				$('.Channel').scrollLeft($(this).scrollLeft());
+			});
+
+			$( ".body" ).sortable({//make the channel divs sortable
+				axis: "y",
+				items: '> .Channel',
+				handle: '.col-sm-1'
+			});
+			
+			generate_steps(0, (dataPoints[1][dataPoints[1].length-1].x/1000-unix_time_stamp));
+			$( "#slider-range" ).slider({// slider 
+				min: 0,
+				max: (dataPoints[1][dataPoints[1].length-1].x/1000-unix_time_stamp),
+				values: [0,slider_range_value],
+				range: true,
+				slide: function(event, ui){
+							if(ui.handleIndex==0){
+								$( "#slider-range" ).slider( "option", "values", [ ui.values[ui.handleIndex],ui.values[ui.handleIndex]+slider_range_value ] );
+							}else{
+								$( "#slider-range" ).slider( "option", "values", [ ui.values[ui.handleIndex]-slider_range_value,ui.values[ui.handleIndex] ] );
+							}
+							$(".delta").text("Range: " + $( "#slider-range" ).slider(  "values",0 ) + " to "+ $( "#slider-range" ).slider(  "values",1 )+ " seconds");
+
+						},	
+				change: function(event,ui){
+							if(event.originalEvent){
+							var min =  $( "#slider-range" ).slider( "option", "min" );
+							var max =  $( "#slider-range" ).slider( "option", "max" );
+							var s_one = $( "#slider-range" ).slider(  "values",0 );
+							var s_two = $( "#slider-range" ).slider(  "values",1 );
+				
+							if(s_two-s_one!=slider_range_value){
+
+								if(s_one == Math.floor(min)){
+						
+									s_two = min+slider_range_value;
+									$( "#slider-range" ).slider( "option", "values", [min,s_two ] );
+
+								} else 
+								if (s_two==Math.floor(max)){
+									s_one = max-slider_range_value;
+									$( "#slider-range" ).slider( "option", "values", [s_one,max ] );
+								} else	{
+									if(ui.handleIndex==1){
+										$( "#slider-range" ).slider( "option", "values", [s_two-slider_range_value,s_two ] );
+									}else if(ui.handleIndex==0){
+										$( "#slider-range" ).slider( "option", "values", [s_one,s_one+slider_range_value ] );
+									}
+								}
+
+							}
+							$(".delta").text("Range: " + $( "#slider-range" ).slider(  "values",0 ) + " to "+ $( "#slider-range" ).slider(  "values",1 )+ " seconds");
+							
+								for(var x = 0; x<charts.length; x++){
+									console.log("here2");
+									var chart = charts[x];
+									chart.options.axisX.viewportMinimum = (s_one+unix_time_stamp)*1000;
+									chart.options.axisX.viewportMaximum = (s_two+unix_time_stamp)*1000;
+									chart.render();
+								}
+							}	
+						}
+
+			}).slider("pips",{
+				rest: "label",
+				step: 3600,
+				labels: steps_slider
+			});
+			
+		  console.log($('.ui-slider').width());
+		 	$("#slider-range").unbind('keydown'); //create slider
+
+		 	$( "#slider" ).contextmenu(function(event) {
+		 		event.preventDefault();
+  			// Show contextmenu
+  				$(".custom-menu").finish().toggle(100).
+
+		    // In the right position (the mouse)
+		    	css({
+		    		top: event.pageY + "px",
+		    		left: event.pageX + "px"
+		    	});
+			});	
+		 	$(document).bind("mousedown", function (e) {
+
+  			  // If the clicked element is not the menu
+  				if (!$(e.target).parents(".custom-menu").length > 0) {
+
+        		// Hide it
+        			$(".custom-menu").hide(100);
+    			}
+    		});
+    		$(".custom-menu label").click(function(){
+
+   			 // This is the triggered action name
+   			 		console.log("custom-menu triggerred");
+
+   			 		slider_range_value = parseInt($(this).attr("data-action"));
+   			 		var s_one = $( "#slider-range" ).slider(  "values", 0 );
+   			 		var s_two =  $( "#slider-range" ).slider(  "values", 1 );
+   			 		var s_middle = (s_one+s_two)/2;
+   			 		s_one = s_middle-slider_range_value/2;
+   			 		s_two = s_middle+slider_range_value/2;
+   					var min =  $( "#slider-range" ).slider( "option", "min" );
+   			 		var max =  $( "#slider-range" ).slider( "option", "max" );
+   			 		if(s_one<min){
+   			 			s_one = min;
+   			 		}
+   			 		if(s_two>max){
+   			 			s_two = max;
+   			 		}
+   			 		$( "#slider-range" ).slider( "option", "values", [ s_one,s_two ] );
+   			 	for(var x = 0; x<charts.length; x++){
+   			 		var chart = charts[x]
+   			 		chart.options.axisX.viewportMinimum = (s_one+unix_time_stamp)*1000;
+   			 		chart.options.axisX.viewportMaximum =  (s_two+unix_time_stamp)*1000;
+   			 		chart.options.axisX.interval = interval_generator();
+   			 		chart.render();
+   			 		
+   			 	}		
+
+    // Hide it AFTER the action was triggered
+    			$(".custom-menu").hide(100);
+				});
+    
+
+			
+			$(".view_check_class").on("click",function(){
+ 				//$(this).addClass('Position_Numeric');
+ 				if(this.checked==true){
+ 			
+ 					$(".Channel."+((this.className).split(" "))[2]).show();
+ 				}else{
+ 			
+ 					$(".Channel."+((this.className).split(" "))[2]).hide();
+ 				}
+
+ 			});
+			if(!jquery_load){
+			$("body").keydown(function(e) {
+				if(e.keyCode ==37||e.keyCode==39){
+					var min =  $( "#slider-range" ).slider( "option", "min" );
+					var max =  $( "#slider-range" ).slider( "option", "max" );
+					var s_one = $( "#slider-range" ).slider(  "values",0 );
+					var s_two = $( "#slider-range" ).slider(  "values",1 );
+					console.log("here5");
+					if(e.keyCode == 37) { // left
+						s_one -=slider_range_value;
+						if(s_one<min){
+							
+							s_one = min; 
+						}
+						s_two = s_one+slider_range_value;
+					}
+					else if(e.keyCode == 39) {
+						s_two +=slider_range_value;
+						if(s_two>max){
+							
+							s_two = max; 
+						}
+						s_one = s_two-slider_range_value;
+					}
+					$( "#slider-range" ).slider( "option", "values", [s_one,s_two ] );
+					$(".delta").text("Range: " + $( "#slider-range" ).slider(  "values",0 ) + " to "+ $( "#slider-range" ).slider(  "values",1 )+ " seconds");
+					for(var x = 0; x<charts.length; x++){
+								var chart = charts[x]
+								chart.options.axisX.viewportMinimum = (s_one+unix_time_stamp)*1000;
+								chart.options.axisX.viewportMaximum = (s_two+unix_time_stamp)*1000;
+								chart.render();
+					}
+				}
+			});}
+			jquery_load = true;
+		}
+});
+
+function isKeyPressed(event) {
+	if (event.shiftKey) {
+		shift = true;
+	} else {
+		shift = false;
+	}
+}
+</script>
+<ul class='custom-menu'>
+	
+	<label data-action="2"><input type = "radio" name = "time_interval" /> 2 sec</label>
+	<label data-action="5"><input type = "radio" name = "time_interval"/> 5 sec</label>
+	<label data-action="10"><input type = "radio" name = "time_interval"/> 10 sec</label>
+	<label data-action="25"><input type = "radio" name = "time_interval"/> 25 sec</label>
+	<label data-action="30"><input type = "radio" name = "time_interval"/> 30 sec</label>
+	<label data-action="60"><input type = "radio" name = "time_interval"/> 1 min</label>
+	<label data-action="120"><input type = "radio" name = "time_interval"/> 2 min</label>
+	<label data-action="300"><input type = "radio" name = "time_interval"/> 10 min</label>
+	<label data-action="1800"><input type = "radio" name = "time_interval"/> 30 min</label>
+	<label data-action="3600"><input type = "radio" name = "time_interval"/ checked> 1 hr</label>
+	<label data-action="7200"><input type = "radio" name = "time_interval"/> 2 hr</label>
+	<label data-action="14400"><input type = "radio" name = "time_interval"/> 4 hr</label>
+	<label data-action="18800"><input type = "radio" name = "time_interval"/> 8 hr</label>
+</ul>
+
+
+<style>
+.custom-menu {
+	display: none;
+	z-index: 1000;
+	position: absolute;
+	overflow: hidden;
+	border: 1px solid #CCC;
+	white-space: nowrap;
+	font-family: sans-serif;
+	background: #FFF;
+	color: #333;
+	border-radius: 5px;
+	padding: 0;
+}
+
+/* Each of the items in the list */
+.custom-menu li {
+	padding: 8px 12px;
+	cursor: pointer;
+	list-style-type: none;
+	transition: all .3s ease;
+	user-select: none;
+}
+
+.custom-menu li:hover {
+	background-color: #DEF;
+}
+/* Remove the navbar's default margin-bottom and rounded borders */ 
+#slider{
+	position:fixed;
+	z-index: 1;
+
+	border-color: #5199ff;
+}
+.body{
+	z-index: 2;
+}
+.NavigationBar_Tools {
+	margin-bottom: 20;
+	border-radius: 20;
+	color: white;
+
+	height: 40px;	
+}
+.NavigationBar {
+	margin-bottom: 0;
+	border-radius: 0;
+	color: white;
+
+}
+.NavigationBar-custom {
+	background-color: #5199ff;
+}	
+
+.Channel {
+	resize: vertical;
+
+	overflow: hidden;
+	height: 300px;*//* width: 100%;*/
+	margin-right:0;
+	padding: 10px;
+}
+.Chart {
+	margin-right : 0;
+	margin-left :0;
+}
+.inputfile{
+	visibility: hidden;
+	
+	width: 0;
+	height:0;
+}
+.ui-slider .ui-slider-handle {
+   height:0;
+    width: 0;
+
+ 
+}
+
+</style>
+</head>
+<body>
+	<nav class="NavigationBar NavigationBar-custom ">
+		<div class="container-fluid">
+			<div class="navbar-header">
+				<a class="navbar-brand" href="www.tatchhealth.com">Tatch</a>
+			</div>
+			<ul class="nav navbar-nav">
+				<li class="active"><a href="#"><span class="glyphicon glyphicon-home"></span> Home</a></li>
+			</ul>
+
+			<form class="navbar-form navbar-left" action="/action_page.php">
+				<div class="form-group">
+					<input type="text" class="form-control" placeholder="Search" name="search">
+				</div>
+				<button type="submit" class="btn btn-default"><span class="glyphicon glyphicon-search"></span></button>
+			</form>
+
+			<ul class="nav navbar-nav navbar-right">
+				<li><a href="#"><span class="glyphicon glyphicon-settings"></span>Settings</a></li>
+				<li><a href="#"><span class="glyphicon glyphicon-log-out"></span> Logout</a></li>
+			</ul>
+		</div>
+	</nav>
+
+	<div class="container-fluid text-center" >    	
+		<nav class="NavigationBar_Tools NavigationBar-custom "  >
+			<div class="container-fluid">
+				<ul class="nav navbar-nav">
+					<li class="dropdown">
+						<a class="dropdown-toggle" data-toggle="dropdown" href="#">File<span class="caret"></span></a>
+						<ul class="dropdown-menu">
+							<li ><input type="file" name="file" id="file" class="inputfile open_onchange_class" /></li>
+							<li><a href="#/"><label for="file">Open</label></a></li>
+							<li><a href="#">Save Changes</a></li>
+						</ul>
+					</li>
+					<li class="dropdown">
+						<a class="dropdown-toggle" data-toggle="dropdown" href="#">Edit<span class="caret"></span></a>
+						<ul class="dropdown-menu">
+							<li><a href="#">Edit Patient Information</a></li>
+						</ul>
+					</li>
+					<li class="dropdown">
+						<a class="dropdown-toggle" data-toggle="dropdown" href="#">View<span class="caret"></span></a>
+						<ul class="dropdown-menu">
+							<li><a href="#">Set Scale</a></li>
+						</ul>
+					</li>
+					<li class="dropdown">
+						<a class="dropdown-toggle" data-toggle="dropdown" href="#">Channels<span class="caret"></span></a>
+						<ul class="dropdown-menu" id = "channel_dropdown">
+							
+							
+						</ul>
+					</li>
+					<li><a href="#">Help</a></li>
+					<li><a href="#" class = "delta"></a></li>
+				</ul>
+			</div>
+			<div class="row" id = "slider" >
+			<div class="col-sm-1" ></div>
+			<div class = "col-sm-11 slider_class">
+				<!-- <div id ="slider-range" style=" margin-left: 60px; width: 1989px; border: 3px solid green; "> </div> -->
+			</div>
+		</div>	    
+		</nav>
+		<h1></h1>
+
+		<!-- <div class="row" id = "slider" >
+			<div class="col-sm-1" ></div>
+			<div class = "col-sm-11 slider_class">
+				<div id ="slider-range" style=" margin-left: 60px; width: 1989px; border: 3px solid green; "> </div>
+			</div>
+		</div> -->
+	</div>
+	<h1></h1>
+	<div class= " body" style="padding-top:20px">
+		<h3 id = "default_message" style = " position: absolute; left: 1000px; top: 150px">No Study Loaded</h3>
+  <!-- <div class="Channel">
+    <div class="row">
+      <div class="col-sm" style="background-color:yellow;">
+        <p>Effort</p>
+      </div>
+      <div class="col-sm1" >
+        <div id = "Effort" onmousedown="isKeyPressed(event)"></div>
+      </div>
+    </div>
+  </div>
+  <div class="Channel">
+    <div class="row">
+      <div class="col-sm" style="background-color:yellow;">
+        <p>Position_Numeric</p>
+      </div>
+      <div class="col-sm1" >
+        <div id = "Position_Numeric" onmousedown="isKeyPressed(event)"></div>
+      </div>
+    </div>
+</div> -->
+		</div>
+	</div>    	
+</body>
+</html>
